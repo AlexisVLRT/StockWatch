@@ -12,12 +12,12 @@ def get_data(ticker, date: datetime):
     r = requests.get('https://api.iextrading.com/1.0/stock/{ticker}/chart/date/{date}'.format(ticker=ticker.lower(), date=date_str))
     data = pd.DataFrame(r.json())
     if len(data):
-        data = data[['average', 'date', 'minute', 'volume']]
+        data = data[['marketHigh', 'date', 'minute', 'volume']]
         data['datetime'] = data["date"].map(str) + ' ' + data["minute"]
         data = data.drop(columns=['date', 'minute'])
         data['datetime'] = data['datetime'].apply(lambda date: datetime.strptime(date, '%Y%m%d %H:%M'))
         data = data.replace(-1, np.nan)
-        data['average'] = data['average'].interpolate()
+        data['marketHigh'] = data['marketHigh'].interpolate()
         # data = data[data['average'] != -1]
         data = data.set_index('datetime')
     return data
@@ -39,7 +39,7 @@ def create_pickle(ticker):
 
 
 tickers = list(pd.read_csv('mostVolatile.csv', header=-1)[0])
-batch_size = 20
+batch_size = 50
 for i in range(0, len(tickers), batch_size):
     threads = []
     for ticker in tickers[i:i+batch_size]:
