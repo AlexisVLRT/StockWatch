@@ -243,13 +243,13 @@ plot = False
 results = []
 immobilized_funds = None
 tickers = [file for file in os.listdir(data_path) if '_'+str(period)+'.' in file][:]
-# tickers = ['GEVO_5.p', 'AAPL_5.p', 'FB_5.p', 'MSFT_5.p']
+# tickers = ['MU_5.p', 'AAPL_5.p', 'FB_5.p', 'MSFT_5.p']
 for stock in tickers:
     print(stock.split('.p')[0])
     print('{}/{}'.format(tickers.index(stock)+1, len(tickers)))
     data = pickle.load(open(data_path + "/{}".format(stock), "rb"))
     if len(data) > 390//period*26 and stock not in []:
-        yearly_profit_first, yearly_profit_second, immobilized = simulate(data, period, fee, fee_flat, start_cash, order_threshold, verif_size, order_shift, extremums_order, min_days_before_abort, sell_trigger_long, plot=plot)
+        yearly_profit_first, yearly_profit_second, immobilized = simulate(data, period, fee, fee_flat, start_cash, order_threshold, verif_size, order_shift, extremums_order, min_days_before_abort, sell_trigger_long, sell_trigger_long, plot=plot)
         immobilized_funds = immobilized_funds.add(immobilized, fill_value=0) if immobilized_funds is not None else immobilized
         results.append((stock.split('.p')[0], yearly_profit_first, yearly_profit_second))
 
@@ -265,4 +265,9 @@ print('Total profit :', total_profit)
 print('Max immobilized funds :', max_immo)
 print('Interest rate over period :', round(100*total_profit/max_immo, 1), '%')
 immobilized_funds.reset_index(drop=True).plot()
+report = pd.DataFrame([period, fee, fee_flat, start_cash, order_threshold, verif_size, order_shift, extremums_order, min_days_before_abort, sell_trigger_long, sell_trigger_short, total_profit, max_immo, round(100*total_profit/max_immo, 1)]).T
+report.columns = ['period', 'fee', 'fee_flat', 'start_cash', 'order_threshold', 'verif_size', 'order_shift', 'extremums_order', 'min_days_before_abort', 'sell_trigger_long', 'sell_trigger_short', 'total_profit', 'max_immo', 'interest']
+report_old = pd.read_csv('report.csv')
+report = report_old.append(report, ignore_index=True)
+report.to_csv('report.csv', index=False)
 plt.show()
