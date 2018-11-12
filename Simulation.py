@@ -12,7 +12,7 @@ import time
 pd.options.mode.chained_assignment = None
 
 
-def simulate(data, period, fee, fee_flat, start_cash, order_threshold, verif_size, order_shift, extremums_order, min_days_before_abort, sell_trigger_long, sell_trigger_short, allow_long=True, allow_short=True, plot=False):
+def simulate(data, period, fee, fee_flat, start_cash, remaining_funds, order_threshold, verif_size, order_shift, extremums_order, min_days_before_abort, sell_trigger_long, sell_trigger_short, allow_long=True, allow_short=True, plot=False):
     data = data.drop_duplicates()
     data['12'] = data['open'].ewm(span=12*390//period).mean()
     data['26'] = data['open'].ewm(span=26*390//period).mean()
@@ -39,7 +39,6 @@ def simulate(data, period, fee, fee_flat, start_cash, order_threshold, verif_siz
     data['>zero'] = data['diff'][data['diff'] > 0]
     data['<zero'] = pd.Series(np.nan)
     data['<zero'] = data['diff'][data['diff'] < 0]
-
 
     data['long_buy_orders'] = pd.Series(np.nan)
     data['long_sell_orders'] = pd.Series(np.nan)
@@ -134,137 +133,130 @@ def simulate(data, period, fee, fee_flat, start_cash, order_threshold, verif_siz
         # plt.pause(0.00001)
         plt.show()
 
-    short_profit_first, short_profit_second, long_profit_first, long_profit_second = 0, 0, 0, 0
+    short_profit, long_profit = 0, 0
     if data['long_buy_orders'].any():
-        long_buy_prices_first = data['open'].iloc[:int(verif_size * len(data))][data['long_buy_orders'] == 2].reset_index(drop=True) * (1 + fee) + fee_flat
-        long_buy_prices_second = data['open'].iloc[int(verif_size * len(data)):][data['long_buy_orders'] == 2].reset_index(drop=True) * (1 + fee) + fee_flat
-        # print(long_buy_prices_first, long_buy_prices_second)
+        long_buy_prices = data['open'].iloc[:int(verif_size * len(data))][data['long_buy_orders'] == 2].reset_index(drop=True) * (1 + fee) + fee_flat
 
-        long_sell_prices_first = (data['open'][data['long_sell_orders'] == 2] * (1 - fee) - fee_flat)[:len(long_buy_prices_first)].reset_index(drop=True)
-        long_sell_prices_second = (data['open'][data['long_sell_orders'] == 2] * (1 - fee) - fee_flat)[len(long_buy_prices_first):].reset_index(drop=True)
+        long_sell_prices = (data['open'][data['long_sell_orders'] == 2] * (1 - fee) - fee_flat)[:len(long_buy_prices)].reset_index(drop=True)
 
-        if len(long_sell_prices_first):
-            cumulated = (long_sell_prices_first / long_buy_prices_first[:len(long_sell_prices_first)]).cumprod()
+        if len(long_sell_prices):
+            cumulated = (long_sell_prices / long_buy_prices[:len(long_sell_prices)]).cumprod()
             immobilized_clusters = data['immobilized_long'].groupby([(data['immobilized_long'] != data['immobilized_long'].shift())]).get_group(True)
             immobilized_clusters = immobilized_clusters.drop(immobilized_clusters.index[0]) if immobilized_clusters.iloc[0] == 0 else immobilized_clusters
-
             for i in range(0, len(immobilized_clusters), 2):
                 if i < len(cumulated):
-                    data.loc[immobilized_clusters.index[i]:immobilized_clusters.index[i+1], 'immobilized_long'] += start_cash * cumulated.iloc[i//2]
-            long_profit_first = int((cumulated.iloc[-1]) * start_cash - start_cash)
+                    if start_cash * cumulated.iloc[i//2] < remaining_funds.loc[immobilized_clusters.index[i]]:
+                        data.loc[immobilized_clusters.index[i]:immobilized_clusters.index[i+1], 'immobilized_long'] += start_cash * cumulated.iloc[i//2]
+                    else:
+                        cumulated.iloc[i // 2] = np.nan
+            cumulated = cumulated.dropna()
+            long_profit = int((cumulated.iloc[-1]) * start_cash - start_cash)
 
-        if len(long_sell_prices_second):
-            cumulated = (long_sell_prices_second / long_buy_prices_second[:len(long_sell_prices_second)]).cumprod()
-            immobilized_clusters = data['immobilized_long'].groupby([(data['immobilized_long'] != data['immobilized_long'].shift())]).get_group(True)
-            immobilized_clusters = immobilized_clusters.drop(immobilized_clusters.index[0]) if immobilized_clusters.iloc[0] == 0 else immobilized_clusters
-
-            for i in range(0, len(immobilized_clusters), 2):
-                if i < len(cumulated):
-                    data.loc[immobilized_clusters.index[i]:immobilized_clusters.index[i + 1], 'immobilized_long'] += start_cash * cumulated.iloc[i // 2]
-            long_profit_second = int((cumulated.iloc[-1]) * start_cash - start_cash)
-
-        print('Profit on long positions:', long_profit_first, long_profit_second)
+        print('Profit on long positions:', long_profit)
 
     if data['short_sell_orders'].any():
-        short_buy_prices_first = data['open'].iloc[:int(verif_size * len(data))][data['short_buy_orders'] == 2].reset_index(drop=True) * (1 + fee) + fee_flat
-        short_buy_prices_second = data['open'].iloc[int(verif_size * len(data)):][data['short_buy_orders'] == 2].reset_index(drop=True) * (1 + fee) + fee_flat
+        short_buy_prices = data['open'].iloc[:int(verif_size * len(data))][data['short_buy_orders'] == 2].reset_index(drop=True) * (1 + fee) + fee_flat
+        short_sell_prices = (data['open'][data['short_sell_orders'] == 2] * (1 - fee) - fee_flat)[:len(short_buy_prices)].reset_index(drop=True)
 
-        short_sell_prices_first = (data['open'][data['short_sell_orders'] == 2] * (1 - fee) - fee_flat)[:len(short_buy_prices_first)].reset_index(drop=True)
-        short_sell_prices_second = (data['open'][data['short_sell_orders'] == 2] * (1 - fee) - fee_flat)[len(short_buy_prices_first):].reset_index(drop=True)
+        recap = pd.DataFrame([short_sell_prices[:len(short_buy_prices)], short_buy_prices]).reset_index(drop=True).T
+        recap.columns = ['Sell', 'Buy']
+        recap['diff'] = recap['Sell'] - recap['Buy']
+        recap['money'] = pd.Series()
 
-        recap_first = pd.DataFrame([short_sell_prices_first[:len(short_buy_prices_first)], short_buy_prices_first]).reset_index(drop=True).T
-        recap_first.columns = ['Sell', 'Buy']
-        recap_first['diff'] = recap_first['Sell'] - recap_first['Buy']
-        recap_first['money'] = pd.Series()
-        for i in range(len(recap_first)):
-            if i == 0:
-                recap_first.loc[recap_first.index[i], 'money'] = start_cash + start_cash % recap_first.iloc[i]['Sell'] + (start_cash // recap_first.iloc[i]['Sell']) * recap_first.iloc[i]['diff']
-            else:
-                recap_first.loc[recap_first.index[i], 'money'] = recap_first.iloc[i - 1]['money'] + recap_first.iloc[i - 1]['money'] % recap_first.iloc[i]['Sell'] + (recap_first.iloc[i - 1]['money'] // recap_first.iloc[i]['Sell']) * recap_first.iloc[i]['diff']
+        print(recap)
+        if len(recap):
+            while len(recap) and np.isnan(recap.iloc[0]['money']):
+                immobilized_clusters = data['immobilized_short'].groupby([(data['immobilized_short'] != data['immobilized_short'].shift())]).get_group(True)
+                immobilized_clusters = immobilized_clusters.drop(immobilized_clusters.index[0]) if immobilized_clusters.iloc[0] == 0 else immobilized_clusters
 
-        lost_more_than_invested = recap_first['money'] + start_cash < 0
-        if lost_more_than_invested.sum():
-            lost_more_than_invested = lost_more_than_invested.index[0]
-            recap_first = recap_first[:lost_more_than_invested+1]
-        if len(recap_first):
+                if start_cash + start_cash % recap.iloc[0]['Sell'] + (start_cash // recap.iloc[0]['Sell']) * recap.iloc[0]['diff'] < remaining_funds.loc[immobilized_clusters.index[0]]:
+                    recap.loc[recap.index[0], 'money'] = start_cash + start_cash % recap.iloc[0]['Sell'] + (start_cash // recap.iloc[0]['Sell']) * recap.iloc[0]['diff']
+                else:
+                    recap = recap.drop(recap.index[0])
+        print(recap)
+
+        for i in range(1, len(recap)):
             immobilized_clusters = data['immobilized_short'].groupby([(data['immobilized_short'] != data['immobilized_short'].shift())]).get_group(True)
             immobilized_clusters = immobilized_clusters.drop(immobilized_clusters.index[0]) if immobilized_clusters.iloc[0] == 0 else immobilized_clusters
+            print(immobilized_clusters)
+            immobilized_clusters = immobilized_clusters.iloc[recap.index[0] * 2:(recap.index[-1] + 1) * 2]
 
-            for i in range(0, len(immobilized_clusters), 2):
-                data.loc[immobilized_clusters.index[i]:immobilized_clusters.index[i+1], 'immobilized_short'] += recap_first['money'].iloc[i // 2 - 1]
-            data.loc[immobilized_clusters.index[0]:immobilized_clusters.index[1], 'immobilized_short'] = start_cash
-            short_profit_first = int(recap_first.loc[recap_first.index[-1], 'money'] - start_cash)
-
-        recap_second = pd.DataFrame([short_sell_prices_second[:len(short_buy_prices_second)], short_buy_prices_second]).reset_index(drop=True).T
-        recap_second.columns = ['Sell', 'Buy']
-        recap_second['diff'] = recap_second['Sell'] - recap_second['Buy']
-        recap_second['money'] = pd.Series()
-        for i in range(len(recap_second)):
-            if i == 0:
-                recap_second.loc[recap_second.index[i], 'money'] = start_cash + start_cash % recap_second.iloc[i]['Sell'] + (start_cash // recap_second.iloc[i]['Sell']) * recap_second.iloc[i]['diff']
+            print(immobilized_clusters)
+            last_valid_money = recap.loc[recap[:i]['money'].last_valid_index()]['money']
+            print(remaining_funds.loc[immobilized_clusters.index[i]])
+            if last_valid_money + last_valid_money % recap.iloc[i]['Sell'] + (last_valid_money // recap.iloc[i]['Sell']) * recap.iloc[i]['diff'] < remaining_funds.loc[immobilized_clusters.index[i]]:
+                recap.loc[recap.index[i], 'money'] = last_valid_money + last_valid_money % recap.iloc[i]['Sell'] + (last_valid_money // recap.iloc[i]['Sell']) * recap.iloc[i]['diff']
             else:
-                recap_second.loc[recap_second.index[i], 'money'] = recap_second.iloc[i - 1]['money'] + recap_second.iloc[i - 1]['money'] % recap_second.iloc[i]['Sell'] + (recap_second.iloc[i - 1]['money'] // recap_second.iloc[i]['Sell']) * recap_second.iloc[i]['diff']
+                recap.loc[recap.index[i], 'money'] = np.nan
 
-        if len(recap_second):
+        # lost_more_than_invested = recap['money'] + start_cash < 0
+        # if lost_more_than_invested.sum():
+        #     lost_more_than_invested = lost_more_than_invested.index[0]
+        #     recap = recap[:lost_more_than_invested+1]
+        recap = recap.dropna()
+        if len(recap):
             immobilized_clusters = data['immobilized_short'].groupby([(data['immobilized_short'] != data['immobilized_short'].shift())]).get_group(True)
             immobilized_clusters = immobilized_clusters.drop(immobilized_clusters.index[0]) if immobilized_clusters.iloc[0] == 0 else immobilized_clusters
+            immobilized_clusters = immobilized_clusters.iloc[recap.index[0]*2:(recap.index[-1]+1)*2]
 
             for i in range(0, len(immobilized_clusters), 2):
-                data.loc[immobilized_clusters.index[i]:immobilized_clusters.index[i + 1], 'immobilized_short'] += recap_second['money'].iloc[i // 2 - 1]
+                data.loc[immobilized_clusters.index[i]:immobilized_clusters.index[i+1], 'immobilized_short'] += recap['money'].iloc[i // 2 - 1]
             data.loc[immobilized_clusters.index[0]:immobilized_clusters.index[1], 'immobilized_short'] = start_cash
-            short_profit_second = int(recap_second.loc[recap_second.index[-1], 'money'] - start_cash)
+            short_profit = int(recap.loc[recap.index[-1], 'money'] - start_cash)
 
-        # print('ROI on short positions:', round(((short_sell_prices_first / short_buy_prices_first).cumprod().iloc[-1] - 1) * 100, 1), '%')
-        print('Profit on short positions:', short_profit_first, short_profit_second)
+        # print('ROI on short positions:', round(((short_sell_prices / short_buy_prices).cumprod().iloc[-1] - 1) * 100, 1), '%')
+        print('Profit on short positions:', short_profit)
 
-    yearly_profit_first = round((short_profit_first + long_profit_first), 1)
-    yearly_profit_second = round((short_profit_second + long_profit_second), 1)
-    print('TOTAL : ', yearly_profit_first + yearly_profit_second)
-    return yearly_profit_first, yearly_profit_second, data['immobilized_short'].add(data['immobilized_long'])
+    yearly_profit = round((short_profit + long_profit), 1)
+    print('TOTAL : ', yearly_profit)
+    return yearly_profit, data['immobilized_short'].add(data['immobilized_long'])
 
 
 # Change this to the path where your pickled stocks data is
-data_path = 'D:/PickledStocksData'
+data_path = '/data/PickledStocksData'
 
 # Simulation parameters
 period = 5
 fee = 10/25000
 fee_flat = 0
 start_cash = 50000
+budget = 50000
 order_threshold = 1.25
 verif_size = 1
-order_shift = 15
+order_shift = 5
 extremums_order = 5
-min_days_before_abort = 5
+min_days_before_abort = 6
 sell_trigger_long = 'zero crossing'  # 'zero crossing' or 'extremum'
 sell_trigger_short = 'zero crossing'
 plot = False
 
 results = []
-immobilized_funds = None
+immobilized_funds, remaining_funds = None, None
 tickers = [file for file in os.listdir(data_path) if '_'+str(period)+'.' in file][:]
-# tickers = ['MU_5.p', 'AAPL_5.p', 'FB_5.p', 'MSFT_5.p']
+tickers = ['MU_5.p', 'AAPL_5.p', 'FB_5.p', 'MSFT_5.p', 'TSLA_5.p', 'CARB_5.p', 'FLEX_5.p']
 for stock in tickers:
     print(stock.split('.p')[0])
     print('{}/{}'.format(tickers.index(stock)+1, len(tickers)))
     data = pickle.load(open(data_path + "/{}".format(stock), "rb"))
-    if len(data) > 390//period*26 and stock not in []:
-        yearly_profit_first, yearly_profit_second, immobilized = simulate(data, period, fee, fee_flat, start_cash, order_threshold, verif_size, order_shift, extremums_order, min_days_before_abort, sell_trigger_long, sell_trigger_long, plot=plot)
+    remaining_funds = data['open'] * 0 + budget if remaining_funds is None else remaining_funds
+    if len(data) > 390 // period * 26 and stock not in []:
+        yearly_profit, immobilized = simulate(data, period, fee, fee_flat, start_cash, remaining_funds, order_threshold, verif_size, order_shift, extremums_order, min_days_before_abort, sell_trigger_long, sell_trigger_long, plot=plot)
         immobilized_funds = immobilized_funds.add(immobilized, fill_value=0) if immobilized_funds is not None else immobilized
-        results.append((stock.split('.p')[0], yearly_profit_first, yearly_profit_second))
+        remaining_funds = budget - immobilized_funds
+        results.append((stock.split('.p')[0], yearly_profit))
 
-results = pd.DataFrame(results, columns=['Stock', 'yearly_profit_first', 'yearly_profit_second']).set_index('Stock')
-results = results.sort_values('yearly_profit_first', ascending=False)
+results = pd.DataFrame(results, columns=['Stock', 'yearly_profit']).set_index('Stock')
+results = results.sort_values('yearly_profit', ascending=False)
 results.to_csv('results2.csv')
 print(results)
 print(results.describe())
 
-total_profit = round(results['yearly_profit_first'].add(results['yearly_profit_first']).sum(), 1)
+total_profit = round(results['yearly_profit'].add(results['yearly_profit']).sum(), 1)
 max_immo = int(max(immobilized_funds))
 print('Total profit :', total_profit)
 print('Max immobilized funds :', max_immo)
 print('Interest rate over period :', round(100*total_profit/max_immo, 1), '%')
-immobilized_funds.reset_index(drop=True).plot()
+remaining_funds.reset_index(drop=True).plot()
 report = pd.DataFrame([period, fee, fee_flat, start_cash, order_threshold, verif_size, order_shift, extremums_order, min_days_before_abort, sell_trigger_long, sell_trigger_short, total_profit, max_immo, round(100*total_profit/max_immo, 1)]).T
 report.columns = ['period', 'fee', 'fee_flat', 'start_cash', 'order_threshold', 'verif_size', 'order_shift', 'extremums_order', 'min_days_before_abort', 'sell_trigger_long', 'sell_trigger_short', 'total_profit', 'max_immo', 'interest']
 report_old = pd.read_csv('report.csv')
