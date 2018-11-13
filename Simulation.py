@@ -14,7 +14,7 @@ from random import shuffle
 pd.options.mode.chained_assignment = None
 
 
-def simulate(data, period, fee, start_cash, remaining_funds, invested_funds, order_threshold, verif_size, order_shift, extremums_order, min_days_before_abort, sell_trigger_long, sell_trigger_short, allow_long=True, allow_short=True, plot=False):
+def simulate(data, period, fee, start_cash, remaining_funds, invested_funds, orders, order_threshold, verif_size, order_shift, extremums_order, min_days_before_abort, sell_trigger_long, sell_trigger_short, allow_long=True, allow_short=True, plot=False):
     data = data[~data.index.duplicated(keep='last')]
     # remaining_funds = remaining_funds.add(data['open']*0).fillna(method='ffill')
     # remaining_funds = remaining_funds[~remaining_funds.index.duplicated(keep='last')]
@@ -103,7 +103,12 @@ def simulate(data, period, fee, start_cash, remaining_funds, invested_funds, ord
                     remaining_funds.loc[date:sell_date] -= to_invest  # Simplified, maybe add a modulo someday
                     remaining_funds.loc[sell_date:] += profit
                     invested_funds.loc[date:sell_date] += to_invest
-                    invested_funds.loc[sell_date:] += profit
+
+                    try:
+                        orders.loc[date] += 1
+                        orders.loc[sell_date] += 1
+                    except:
+                        pass
                 else:
                     data.loc[date, 'long_buy_orders'] = 0
             else:
@@ -148,7 +153,12 @@ def simulate(data, period, fee, start_cash, remaining_funds, invested_funds, ord
                     remaining_funds.loc[date:cover_date] -= to_invest  # Simplified, maybe add a modulo someday
                     remaining_funds.loc[cover_date:] += profit
                     invested_funds.loc[date:cover_date] += to_invest
-                    invested_funds.loc[cover_date:] += profit
+
+                    try:
+                        orders.loc[date] += 1
+                        orders.loc[sell_date] += 1
+                    except:
+                        pass
                 else:
                     data.loc[date, 'short_sell_orders'] = 0
             else:
@@ -201,9 +211,9 @@ data_path = 'PickledStocksData'
 # Simulation parameters
 period = 5
 fee = 10/50000
-start_cash = 50000
+start_cash = 100000
 budget = 5000000
-order_threshold = 1.5
+order_threshold = 2
 verif_size = 1
 order_shift = 15
 extremums_order = 5
@@ -213,7 +223,7 @@ sell_trigger_short = 'zero crossing'
 plot = False
 
 results = []
-remaining_funds, invested_funds = None, None
+remaining_funds, invested_funds, orders = None, None, None
 tickers = [file for file in os.listdir(data_path) if '_'+str(period)+'.' in file]
 shuffle(tickers)
 tickers = tickers[:]
@@ -224,8 +234,9 @@ for stock in tickers:
     data = pickle.load(open(data_path + "/{}".format(stock), "rb"))
     remaining_funds = data['open'] * 0 + budget if remaining_funds is None else remaining_funds
     invested_funds = data['open'] * 0 if invested_funds is None else invested_funds
+    orders = data['open'] * 0 if orders is None else orders
     if len(data) > 390 // period * 26 and stock not in []:
-        yearly_profit = simulate(data, period, fee, start_cash, remaining_funds, invested_funds, order_threshold, verif_size, order_shift, extremums_order, min_days_before_abort, sell_trigger_long, sell_trigger_long, plot=plot, allow_short=True)
+        yearly_profit = simulate(data, period, fee, start_cash, remaining_funds, invested_funds, orders, order_threshold, verif_size, order_shift, extremums_order, min_days_before_abort, sell_trigger_long, sell_trigger_long, plot=plot, allow_short=True)
         remaining_funds = remaining_funds.fillna(method='ffill')
         invested_funds = invested_funds.fillna(method='ffill')
         results.append((stock.split('.p')[0], yearly_profit))
@@ -240,12 +251,24 @@ total_profit = round(results.loc[:, 'yearly_profit'].sum(), 1)
 print('Total profit :', total_profit)
 print('Max immobilized funds :', budget)
 print('Interest rate over period :', round(100*total_profit/budget, 1), '%')
-remaining_funds.reset_index(drop=True).plot()
-invested_funds.reset_index(drop=True).plot()
-remaining_funds.add(invested_funds).reset_index(drop=True).plot()
+
 report = pd.DataFrame([period, fee, start_cash, order_threshold, verif_size, order_shift, extremums_order, min_days_before_abort, sell_trigger_long, sell_trigger_short, total_profit, budget, round(100*total_profit/budget, 1)]).T
 report.columns = ['period', 'fee', 'start_cash', 'order_threshold', 'verif_size', 'order_shift', 'extremums_order', 'min_days_before_abort', 'sell_trigger_long', 'sell_trigger_short', 'total_profit', 'max_immo', 'interest']
 report_old = pd.read_csv('report.csv')
 report = report_old.append(report, ignore_index=True)
 report.to_csv('report.csv', index=False)
+
+fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True)
+remaining_funds.name = 'Cash'
+
+remaining_funds.reset_index(drop=True).plot(ax=ax1, legend=' ')
+invested_funds.name = 'Invested'
+invested_funds.reset_index(drop=True).plot(ax=ax1, legend=' ')
+net_worth = remaining_funds.add(invested_funds).reset_index(drop=True)
+net_worth.name = 'Net worth'
+net_worth.plot(ax=ax1, legend=' ')
+ax1.set_title('Money Evolution')
+
+orders.reset_index(drop=True).plot(ax=ax2)
+ax2.set_title('Number of trades per period (5 sec here)')
 plt.show()
