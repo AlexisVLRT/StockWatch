@@ -9,14 +9,12 @@ def get_positions(tickers):
 
     conn = mysql.connector.connect(host=dc.host, user=dc.user, password=dc.password, database=dc.database)
     cursor = conn.cursor()
-
     cursor.execute("""SELECT Ticker, LongPosition, Invested, ShortPosition, Provisioned FROM Positions WHERE Ticker IN {}""".format(tickers))
-
     rows = cursor.fetchall()
     ret_val = pd.DataFrame(rows, columns=['Ticker', 'LongPosition', 'Invested', 'ShortPosition', 'Provisioned']).set_index('Ticker')
-
     cursor.close()
     conn.close()
+
     return ret_val
 
 
@@ -27,6 +25,27 @@ def update_position(ticker, long, invested, short, provisioned):
     conn.commit()
     cursor.close()
     conn.close()
+
+
+def open_position(ticker, position, entry_date, entry_price, entry_money):
+    conn = mysql.connector.connect(host=dc.host, user=dc.user, password=dc.password, database=dc.database)
+    cursor = conn.cursor()
+    cursor.execute("""INSERT INTO PositionsLog (Ticker, Position, EntryDate, EntryPrice, EntryMoney) VALUES ('{}', '{}', '{}', '{}', '{}')""".format(ticker, position, entry_date, entry_price, entry_money))
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+
+def close_position(id, exit_date, exit_price, exit_money, profit):
+    conn = mysql.connector.connect(host=dc.host, user=dc.user, password=dc.password, database=dc.database)
+    cursor = conn.cursor()
+    cursor.execute("""UPDATE PositionsLog SET  ExitDate = '{}', ExitPrice = '{}', ExitMoney = '{}', Profit = '{}' WHERE id = '{}'""".format(exit_date, exit_price, exit_money, profit, id))
+    conn.commit()
+
+
+    cursor.close()
+    conn.close()
+    return id
 
 
 def reset(tickers):
