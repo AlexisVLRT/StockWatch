@@ -1,6 +1,7 @@
 import Database_credentials as dc
 import mysql.connector
 import pandas as pd
+import numpy as np
 
 
 def get_positions(tickers):
@@ -9,43 +10,42 @@ def get_positions(tickers):
 
     conn = mysql.connector.connect(host=dc.host, user=dc.user, password=dc.password, database=dc.database)
     cursor = conn.cursor()
-    cursor.execute("""SELECT Ticker, LongPosition, Invested, ShortPosition, Provisioned FROM Positions WHERE Ticker IN {}""".format(tickers))
+    cursor.execute("""SELECT Ticker, LongPosition, Invested, ShortPosition, Provisioned, LongID, ShortID, LongDiff, ShortDiff FROM CurrentPositions WHERE Ticker IN {}""".format(tickers))
     rows = cursor.fetchall()
-    ret_val = pd.DataFrame(rows, columns=['Ticker', 'LongPosition', 'Invested', 'ShortPosition', 'Provisioned']).set_index('Ticker')
+    ret_val = pd.DataFrame(rows, columns=['Ticker', 'LongPosition', 'Invested', 'ShortPosition', 'Provisioned', 'LongID', 'ShortID', 'LongDiff', 'ShortDiff']).set_index('Ticker')
     cursor.close()
     conn.close()
 
-    return ret_val
+    ret_val = ret_val.replace('nan', np.nan)
+    invested = ret_val['Invested'][~ret_val['LongID'].isna()].sum() + ret_val['Provisioned'][~ret_val['ShortID'].isna()].sum()
+    return ret_val, invested
 
 
-def update_position(ticker, long, invested, short, provisioned):
+def update_position(ticker, long, invested, short, provisioned, long_id, short_id, long_diff, short_diff):
     conn = mysql.connector.connect(host=dc.host, user=dc.user, password=dc.password, database=dc.database)
     cursor = conn.cursor()
-    cursor.execute("""UPDATE Positions SET  LongPosition = '{}', Invested = '{}', ShortPosition = '{}', Provisioned = '{}' WHERE Ticker = '{}'""".format(long, invested, short, provisioned, ticker))
+    cursor.execute("""UPDATE CurrentPositions SET  LongPosition = '{}', Invested = '{}', LongID = '{}', LongDiff = '{}', ShortPosition = '{}', Provisioned = '{}', ShortID = '{}', ShortDiff = '{}' WHERE Ticker = '{}'""".format(long, invested, long_id, long_diff, short, provisioned, short_id, short_diff, ticker))
     conn.commit()
     cursor.close()
     conn.close()
 
 
-def open_position(ticker, position, entry_date, entry_price, entry_money):
+def open_position(trade_id, ticker, position, entry_date, entry_price, entry_money):
     conn = mysql.connector.connect(host=dc.host, user=dc.user, password=dc.password, database=dc.database)
     cursor = conn.cursor()
-    cursor.execute("""INSERT INTO PositionsLog (Ticker, Position, EntryDate, EntryPrice, EntryMoney) VALUES ('{}', '{}', '{}', '{}', '{}')""".format(ticker, position, entry_date, entry_price, entry_money))
+    cursor.execute("""INSERT INTO PositionsLog (Ticker, Position, EntryDate, EntryPrice, EntryMoney, TradeID) VALUES ('{}', '{}', '{}', '{}', '{}', '{}')""".format(ticker, position, entry_date, entry_price, entry_money, trade_id))
     conn.commit()
     cursor.close()
     conn.close()
 
 
-def close_position(id, exit_date, exit_price, exit_money, profit):
+def close_position(trade_id, exit_date, exit_price, exit_money, profit):
     conn = mysql.connector.connect(host=dc.host, user=dc.user, password=dc.password, database=dc.database)
     cursor = conn.cursor()
-    cursor.execute("""UPDATE PositionsLog SET  ExitDate = '{}', ExitPrice = '{}', ExitMoney = '{}', Profit = '{}' WHERE id = '{}'""".format(exit_date, exit_price, exit_money, profit, id))
+    cursor.execute("""UPDATE PositionsLog SET  ExitDate = '{}', ExitPrice = '{}', ExitMoney = '{}', Profit = '{}' WHERE TradeID = '{}'""".format(exit_date, exit_price, exit_money, profit, trade_id))
     conn.commit()
-
-
     cursor.close()
     conn.close()
-    return id
 
 
 def reset(tickers):
@@ -54,7 +54,8 @@ def reset(tickers):
 
     conn = mysql.connector.connect(host=dc.host, user=dc.user, password=dc.password, database=dc.database)
     cursor = conn.cursor()
-    cursor.execute("""UPDATE Positions SET  LongPosition = '0', Invested = '0', ShortPosition = '0', Provisioned = '0' WHERE Ticker IN {}""".format(tickers))
+    cursor.execute("""UPDATE CurrentPositions SET  LongPosition = '0', Invested = '0', LongID=NULL, LongDiff=NULL, ShortPosition = '0', Provisioned = '0', ShortID=NULL, ShortDiff=NULL WHERE Ticker IN {}""".format(tickers))
+    cursor.execute("""DELETE FROM PositionsLog""")
     conn.commit()
     cursor.close()
     conn.close()
