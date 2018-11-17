@@ -10,20 +10,21 @@ from random import shuffle
 import DataBase
 from threading import Thread
 from multiprocessing import Manager, Pool
+import time
 
 
 class RealTime:
-    def __init__(self, n_threads, tickers, offset, queue):
-        self.n_threads = n_threads
+    def __init__(self, n_cores, tickers, offset, queue):
+        self.n_cores = n_cores
         self.tickers = tickers
         self.queue = queue
         self.period = 5
         self.extremum_order = 5
-        self.order_threshold = 0.3
+        self.order_threshold = 0.25
         self.sell_trigger_long = 'zero crossing'  # 'zero crossing' or 'extremum'
         self.sell_trigger_short = 'zero crossing'
-        self.cash = 5000000/n_threads
-        self.start_cash = 200000
+        self.cash = 5000000 / n_cores
+        self.start_cash = 65000
         self.min_days_before_abort = 5
 
         self.offset = offset
@@ -106,11 +107,11 @@ class RealTime:
                     positive_indices = subset.reset_index(drop=True).index[subset > 0].tolist()
                     local_maxima = argrelextrema(subset.values, np.greater, order=self.extremum_order)[0]
                     if len(list(set(local_maxima).intersection(positive_indices))):
-                        if self.positions.loc[ticker, 'ShortPosition'] == 0 and diff.iloc[-1] > self.order_threshold and self.cash > self.positions.loc[ticker, 'Provisioned']:
+                        if self.positions.loc[ticker, 'ShortPosition'] == 0 and diff.iloc[-1] > self.order_threshold and self.cash > self.positions.loc[ticker, 'Provisioned'] and self.positions.loc[ticker, 'Provisioned'] > 0:
                             # print('Short', ticker)
-                            self.open_position(ticker, entry_date=data.index[-1], position=-1, entry_price=data.iloc[-1, 0], entry_money=self.positions.loc[ticker, 'Provisioned'], diff=diff.iloc[-1])
                             self.invested += self.positions.loc[ticker, 'Provisioned']
                             self.cash -= self.positions.loc[ticker, 'Provisioned']
+                            self.open_position(ticker, entry_date=data.index[-1], position=-1, entry_price=data.iloc[-1, 0], entry_money=self.positions.loc[ticker, 'Provisioned'], diff=diff.iloc[-1])
 
                         if self.positions.loc[ticker, 'LongPosition']:
                             # print('Sell', ticker)
@@ -124,11 +125,11 @@ class RealTime:
                     negative_indices = subset.reset_index(drop=True).index[subset < 0].tolist()
                     local_minima = argrelextrema(subset.values, np.less, order=self.extremum_order)[0]
                     if len(list(set(local_minima).intersection(negative_indices))):
-                        if self.positions.loc[ticker, 'LongPosition'] == 0 and diff.iloc[-1] < -self.order_threshold and self.cash > self.positions.loc[ticker, 'Invested']:
+                        if self.positions.loc[ticker, 'LongPosition'] == 0 and diff.iloc[-1] < -self.order_threshold and self.cash > self.positions.loc[ticker, 'Invested'] and self.positions.loc[ticker, 'Invested'] > 0:
                             # print('Buy', ticker)
-                            self.open_position(ticker, entry_date=data.index[-1], position=1, entry_price=data.iloc[-1, 0], entry_money=self.positions.loc[ticker, 'Invested'], diff=diff.iloc[-1])
                             self.invested += self.positions.loc[ticker, 'Invested']
                             self.cash -= self.positions.loc[ticker, 'Invested']
+                            self.open_position(ticker, entry_date=data.index[-1], position=1, entry_price=data.iloc[-1, 0], entry_money=self.positions.loc[ticker, 'Invested'], diff=diff.iloc[-1])
 
                         if self.positions.loc[ticker, 'ShortPosition']:
                             # print('Cover', ticker)
@@ -179,9 +180,9 @@ class RealTime:
         Thread(target=DataBase.close_position, args=(trade_id, exit_date, exit_price, exit_money, profit)).start()
 
 
-n_threads = 3
-n_stocks = 100
-offset = 5000
+n_cores = 3
+n_stocks = 300
+offset = 10000
 past_data = pickle.load(open("FullData_5.p", "rb"))[:-offset]
 past_data = past_data[~past_data.index.duplicated(keep='last')]
 future_data = pickle.load(open("FullData_5.p", "rb"))[-offset:]
@@ -189,23 +190,27 @@ future_data = pickle.load(open("FullData_5.p", "rb"))[-offset:]
 tickers = list(past_data.columns)
 shuffle(tickers)
 tickers = tickers[:n_stocks]
-tickers = [tickers[int(i*len(tickers)/n_threads):int((i+1)*len(tickers)/n_threads)] for i in range(n_threads)]
-money = pd.DataFrame(columns=['Cash', 'Invested', 'Net worth'])
+tickers = [tickers[int(i * len(tickers) / n_cores):int((i + 1) * len(tickers) / n_cores)] for i in range(n_cores)]
+money = pd.DataFrame(columns=['Cash', 'Invested', 'Net worth', 'Complete'])
 
 if __name__ == '__main__':
-    pool = Pool(processes=n_threads)
+    pool = Pool(processes=n_cores)
     m = Manager()
     q = m.Queue()
-    for i in range(n_threads):
-        workers = pool.apply_async(RealTime, (n_threads, tickers[i], offset, q))
+    for i in range(n_cores):
+        workers = pool.apply_async(RealTime, (n_cores, tickers[i], offset, q))
 
+    last_point = time.time()
     while 1:
         index, cash, invested = q.get()
         if index in money.index:
-            money.iloc[index] += [cash, invested, cash+invested]
+            money.iloc[index] += [cash, invested, cash+invested, 1]
+            if money.iloc[index]['Complete'] == n_cores:
+                print(time.time()-last_point)
+                last_point = time.time()
         else:
-            money.loc[index] = [cash, invested, cash + invested]
+            money.loc[index] = [cash, invested, cash + invested, 1]
         plt.clf()
-        plt.plot(money)
+        plt.plot(money[money['Complete'] == n_cores][['Cash', 'Invested', 'Net worth']])
         plt.pause(0.1)
 
