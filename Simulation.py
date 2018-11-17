@@ -210,12 +210,12 @@ data_path = 'PickledStocksData'
 
 # Simulation parameters
 period = 5
-fee = 10/50000
-start_cash = 100000
+start_cash = 65000
+fee = 0  # Approximation
 budget = 5000000
-order_threshold = 2
+order_threshold = 0.25
 verif_size = 1
-order_shift = 15
+order_shift = 5
 extremums_order = 5
 min_days_before_abort = 5
 sell_trigger_long = 'zero crossing'  # 'zero crossing' or 'extremum'
@@ -226,7 +226,7 @@ results = []
 remaining_funds, invested_funds, orders = None, None, None
 tickers = [file for file in os.listdir(data_path) if '_'+str(period)+'.' in file]
 shuffle(tickers)
-tickers = tickers[:]
+tickers = tickers[:300]
 # tickers = ['INFO_5.p', 'AMZN_5.p', 'AAPL_5.p', 'MSFT_5.p', 'FB_5.p', 'GOOG_5.p', 'TSLA_5.p']
 for stock in tickers:
     print('\n' + stock.split('.p')[0])
