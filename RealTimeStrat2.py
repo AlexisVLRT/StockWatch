@@ -20,11 +20,11 @@ class RealTime:
         self.queue = queue
         self.period = 5
         self.extremum_order = 5
-        self.order_threshold = 0.2
+        self.order_threshold = 1
         self.sell_trigger_long = 'zero crossing'  # 'zero crossing' or 'extremum'
         self.sell_trigger_short = 'zero crossing'
         self.cash = 5000000 / n_cores
-        self.start_cash = 75000
+        self.start_cash = 35000
         self.min_days_before_abort = 5
 
         self.offset = offset
@@ -66,40 +66,38 @@ class RealTime:
                 diff = pd.Series(StandardScaler(with_mean=False).fit_transform(diff.values.reshape(-1, 1)).flatten())
                 diff2 = pd.Series(StandardScaler(with_mean=False).fit_transform(diff2.values.reshape(-1, 1)).flatten())
 
-                # Buy when diff < -1 and diff2 > 0.75
+                # Buy when diff < -1 and diff2 > 0
                 if self.positions.loc[ticker, 'LongPosition'] == 0 and self.cash > self.start_cash:
-                    if diff.iloc[-1] < -1.5 and diff2.iloc[-1] > 1:
+                    if diff.iloc[-1] < -1 and diff2.iloc[-1] > 0:
                         self.invested += self.start_cash
                         self.cash -= self.start_cash
                         print('Buying ', ticker, i)
                         self.open_position(ticker, entry_date=data.index[-1], position=1, entry_price=data.iloc[-1, 0], entry_money=self.start_cash, diff=diff.iloc[-1])
 
-                # Sell when diff2 goes above 1.05 then back below 0.95 or diff > 0
+                # Sell when (diff < 0 and diff2 < 1) or (diff2 < 0 and diff > diff@buy/2 and j+3)
                 if self.positions.loc[ticker, 'LongPosition']:
                     open_date = self.positions.loc[ticker, 'LongID'].split('|')[1]
-                    max_diff2 = diff2.loc[data.index.get_loc(int(open_date)):].max()
-
-                    if diff.iloc[-1] > 0 or (max_diff2 > 1.30 and diff2.iloc[-1] < 1.20):
+                    min_date_abort = int(datetime.strftime(datetime.strptime(str(open_date), '%Y%m%d%H%M') + timedelta(days=self.min_days_before_abort), '%Y%m%d%H%M'))
+                    if (diff.iloc[-1] > 0 and diff2.iloc[-1] < 1) or (diff2.iloc[-1] < 0 and diff.iloc[-1] > self.positions.loc[ticker, 'LongDiff']/2 and int(list(data.index)[-1]) > min_date_abort):
                         new_money = data.iloc[-1, 0] / self.positions.loc[ticker, 'LongPosition'] * self.positions.loc[ticker, 'Invested']
                         self.invested -= self.positions.loc[ticker, 'Invested']
                         self.cash += new_money
                         print('Selling ', ticker, i)
                         self.close_position(ticker, exit_date=data.index[-1], position=1, exit_price=data.iloc[-1, 0], exit_money=new_money)
 
-                # Short when diff > 1 and diff2 < -0.75
+                # Short when diff > 1 and diff2 < 0
                 if self.positions.loc[ticker, 'ShortPosition'] == 0 and self.cash > self.start_cash:
-                    if diff.iloc[-1] > 1.5 and diff2.iloc[-1] < -1:
+                    if diff.iloc[-1] > 1 and diff2.iloc[-1] < 0:
                         self.invested += self.start_cash
                         self.cash -= self.start_cash
                         print('Shorting ', ticker, i)
                         self.open_position(ticker, entry_date=data.index[-1], position=-1, entry_price=data.iloc[-1, 0], entry_money=self.start_cash, diff=diff.iloc[-1])
 
-                # Cover when diff2 goes below -1.05 then back above -0.95 or diff < 0
+                # Cover when (diff > 0 and diff2 > -1) or (diff2 > 0 and diff < diff@buy/2 and j+3)
                 if self.positions.loc[ticker, 'ShortPosition']:
                     open_date = self.positions.loc[ticker, 'ShortID'].split('|')[1]
-                    min_diff2 = diff2.loc[data.index.get_loc(int(open_date)):].min()
-
-                    if diff.iloc[-1] < 0 or (min_diff2 < -1.30 and diff2.iloc[-1] > -1.20):
+                    min_date_abort = int(datetime.strftime(datetime.strptime(str(open_date), '%Y%m%d%H%M') + timedelta(days=self.min_days_before_abort), '%Y%m%d%H%M'))
+                    if (diff.iloc[-1] < 0 and diff2.iloc[-1] > -1) or (diff2.iloc[-1] > 0 and diff.iloc[-1] < self.positions.loc[ticker, 'ShortDiff'] / 2 and int(list(data.index)[-1]) > min_date_abort):
                         new_money = self.positions.loc[ticker, 'Provisioned'] / self.positions.loc[ticker, 'ShortPosition'] * (self.positions.loc[ticker, 'ShortPosition'] - data.iloc[-1, 0]) + self.positions.loc[ticker, 'Provisioned']
                         self.invested -= self.positions.loc[ticker, 'Provisioned']
                         self.cash += new_money
