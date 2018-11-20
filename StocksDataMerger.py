@@ -3,19 +3,16 @@ import numpy as np
 import pickle
 import os
 
-data_path = 'PickledStocksData'
+data_path = 'D:/PickledStocksData'
 period = 5
 
-tickers = [file for file in os.listdir(data_path) if '_'+str(period)+'.' in file][:2]
+tickers = [file for file in os.listdir(data_path) if '_'+str(period)+'.' in file]
 tickers_names = [ticker.replace('_{}.p'.format(period), '') for ticker in tickers]
-data = pickle.load(open(data_path + "/{}".format(tickers[0]), "rb"))
+full_data = pd.DataFrame()
 
-index = pd.MultiIndex.from_product([list(data.index), tickers_names], names=['date', 'ticker'])
-frame = pd.DataFrame(np.random.randn(len(list(data.index)) * len(tickers_names), 1), index=index)
-print(frame.loc[:])
-
-# for stock in tickers:
-#     data = pickle.load(open(data_path + "/{}".format(stock), "rb"))
-#     data = data.loc[:, 'open']
-#     print(data)
-#     frame.loc[(:, stock), :] = data
+for stock in tickers:
+    data = pickle.load(open(data_path + "/{}".format(stock), "rb"))['open']
+    data = data[~data.index.duplicated(keep='last')]
+    full_data[stock.replace('_{}.p'.format(period), '')] = data
+pickle.dump(full_data, open('FullData_{}.p'.format(period), 'wb'))
+print(full_data)
