@@ -14,7 +14,8 @@ import time
 
 
 class RealTime:
-    def __init__(self, n_cores, tickers, offset, queue):
+    def __init__(self, db_id, n_cores, tickers, offset, queue):
+        self.db_id = db_id
         self.n_cores = n_cores
         self.tickers = tickers
         self.queue = queue
@@ -24,7 +25,7 @@ class RealTime:
         self.sell_trigger_long = 'zero crossing'  # 'zero crossing' or 'extremum'
         self.sell_trigger_short = 'zero crossing'
         self.cash = 5000000 / n_cores
-        self.start_cash = 35000
+        self.start_cash = 85000
         self.min_days_before_abort = 5
 
         self.offset = offset
@@ -35,7 +36,7 @@ class RealTime:
         self.past_data = self.past_data[self.tickers]
         self.future_data = self.future_data[self.tickers]
 
-        self.positions, self.invested = DataBase.get_positions(self.tickers)
+        self.positions, self.invested = DataBase.get_positions(self.db_id, self.tickers)
         self.positions.loc[:, 'Invested'][self.positions['Invested'] == 0] = self.start_cash
         self.positions.loc[:, 'Provisioned'][self.positions['Provisioned'] == 0] = self.start_cash
         self.positions['LongID'] = np.nan
@@ -62,13 +63,12 @@ class RealTime:
                 macd = ema12 - ema24
                 signal = macd.ewm(span=9 * 390 // self.period).mean()
                 diff = (macd - signal)
-                diff2 = ((macd - signal).fillna(0).diff().ewm(span=0.5 * 390 // self.period).mean()).fillna(0)
                 diff = pd.Series(StandardScaler(with_mean=False).fit_transform(diff.values.reshape(-1, 1)).flatten())
-                diff2 = pd.Series(StandardScaler(with_mean=False).fit_transform(diff2.values.reshape(-1, 1)).flatten())
+                diff2 = (diff.fillna(0).diff().ewm(span=0.5 * 390 // self.period).mean()).fillna(0)
 
                 # Buy when diff < -1 and diff2 > 0
                 if self.positions.loc[ticker, 'LongPosition'] == 0 and self.cash > self.start_cash:
-                    if diff.iloc[-1] < -1 and diff2.iloc[-1] > 0:
+                    if diff.iloc[-1] < -1 and diff2.iloc[-1] > 0 > diff2.iloc[-2]:
                         self.invested += self.start_cash
                         self.cash -= self.start_cash
                         print('Buying ', ticker, i)
@@ -78,7 +78,7 @@ class RealTime:
                 if self.positions.loc[ticker, 'LongPosition']:
                     open_date = self.positions.loc[ticker, 'LongID'].split('|')[1]
                     min_date_abort = int(datetime.strftime(datetime.strptime(str(open_date), '%Y%m%d%H%M') + timedelta(days=self.min_days_before_abort), '%Y%m%d%H%M'))
-                    if (diff.iloc[-1] > 0 and diff2.iloc[-1] < 1) or (diff2.iloc[-1] < 0 and diff.iloc[-1] > self.positions.loc[ticker, 'LongDiff']/2 and int(list(data.index)[-1]) > min_date_abort):
+                    if (diff.iloc[-1] > 0 and diff2.iloc[-1] < 1) or (diff2.iloc[-1] < 0 and diff.iloc[-1] > self.positions.loc[ticker, 'LongDiff']*2/3 and int(list(data.index)[-1]) > min_date_abort):
                         new_money = data.iloc[-1, 0] / self.positions.loc[ticker, 'LongPosition'] * self.positions.loc[ticker, 'Invested']
                         self.invested -= self.positions.loc[ticker, 'Invested']
                         self.cash += new_money
@@ -87,7 +87,7 @@ class RealTime:
 
                 # Short when diff > 1 and diff2 < 0
                 if self.positions.loc[ticker, 'ShortPosition'] == 0 and self.cash > self.start_cash:
-                    if diff.iloc[-1] > 1 and diff2.iloc[-1] < 0:
+                    if diff.iloc[-1] > 1 and diff2.iloc[-1] < 0 < diff2.iloc[-2]:
                         self.invested += self.start_cash
                         self.cash -= self.start_cash
                         print('Shorting ', ticker, i)
@@ -97,7 +97,7 @@ class RealTime:
                 if self.positions.loc[ticker, 'ShortPosition']:
                     open_date = self.positions.loc[ticker, 'ShortID'].split('|')[1]
                     min_date_abort = int(datetime.strftime(datetime.strptime(str(open_date), '%Y%m%d%H%M') + timedelta(days=self.min_days_before_abort), '%Y%m%d%H%M'))
-                    if (diff.iloc[-1] < 0 and diff2.iloc[-1] > -1) or (diff2.iloc[-1] > 0 and diff.iloc[-1] < self.positions.loc[ticker, 'ShortDiff'] / 2 and int(list(data.index)[-1]) > min_date_abort):
+                    if (diff.iloc[-1] < 0 and diff2.iloc[-1] > -1) or (diff2.iloc[-1] > 0 and diff.iloc[-1] < self.positions.loc[ticker, 'ShortDiff']*2/3 and int(list(data.index)[-1]) > min_date_abort):
                         new_money = self.positions.loc[ticker, 'Provisioned'] / self.positions.loc[ticker, 'ShortPosition'] * (self.positions.loc[ticker, 'ShortPosition'] - data.iloc[-1, 0]) + self.positions.loc[ticker, 'Provisioned']
                         self.invested -= self.positions.loc[ticker, 'Provisioned']
                         self.cash += new_money
@@ -121,7 +121,7 @@ class RealTime:
 
         self.positions.loc[ticker] = [long, invested, short, provisioned, long_id, short_id, long_diff, short_diff]
         # print(self.positions.loc[ticker])
-        Thread(target=DataBase.update_position, args=(ticker, long, invested, short, provisioned, long_id, short_id, long_diff, short_diff)).start()
+        Thread(target=DataBase.update_position, args=(self.db_id, ticker, long, invested, short, provisioned, long_id, short_id, long_diff, short_diff)).start()
 
     def open_position(self, ticker, entry_date, position, entry_price, entry_money, diff):
         trade_id = '{}|{}|{}|{}|{}'.format(ticker, entry_date, position, entry_price, entry_money)
@@ -130,7 +130,7 @@ class RealTime:
         if position == -1:
             self.update_position(ticker, short=entry_price, provisioned=entry_money, short_id=trade_id, short_diff=diff)
 
-        Thread(target=DataBase.open_position, args=(trade_id, ticker, position, entry_date, entry_price, entry_money)).start()
+        Thread(target=DataBase.open_position, args=(self.db_id, trade_id, ticker, position, entry_date, entry_price, entry_money)).start()
 
     def close_position(self, ticker, exit_date, position, exit_price, exit_money):
         assert(position == -1 or position == 1)
@@ -144,11 +144,12 @@ class RealTime:
             self.update_position(ticker, short=0, provisioned=exit_money, short_id=np.nan, short_diff=np.nan)
 
         profit = exit_money / money_in
-        Thread(target=DataBase.close_position, args=(trade_id, exit_date, exit_price, exit_money, profit)).start()
+        Thread(target=DataBase.close_position, args=(self.db_id, trade_id, exit_date, exit_price, exit_money, profit)).start()
 
 
+db_id = 1
 n_cores = 3
-n_stocks = 300
+n_stocks = 215
 offset = 10000
 past_data = pickle.load(open("FullData_5.p", "rb"))[:-offset]
 past_data = past_data[~past_data.index.duplicated(keep='last')]
@@ -165,7 +166,7 @@ if __name__ == '__main__':
     m = Manager()
     q = m.Queue()
     for i in range(n_cores):
-        workers = pool.apply_async(RealTime, (n_cores, tickers[i], offset, q))
+        workers = pool.apply_async(RealTime, (db_id, n_cores, tickers[i], offset, q))
 
     last_point = time.time()
     while 1:
