@@ -8,8 +8,8 @@ import os
 from iexfinance import Stock
 
 
-stock = 'MRTX'
-data_path = 'PickledStocksData'
+stock = 'CARB'
+data_path = 'D:/PickledStocksData'
 period = 5
 
 data = pd.read_csv('recap.csv', header=-1, index_col=1)
@@ -26,8 +26,10 @@ refined['MoneyDelta'] = refined['MoneyOut'] - refined['MoneyIn']
 
 
 hist_data = pd.DataFrame(pickle.load(open(data_path + "/{}_5.p".format(stock), "rb"))['open'])
-hist_data = hist_data[~hist_data.index.duplicated(keep='last')].iloc[:11750]
+hist_data = hist_data[~hist_data.index.duplicated(keep='last')].iloc[:]
 hist_data['Order'] = pd.Series()
+
+print(hist_data['open'].std())
 
 
 ema24 = hist_data.iloc[:, 0].ewm(span=26 * 390 // period).mean()
@@ -38,6 +40,14 @@ diff = (macd - signal)
 diff = pd.Series(StandardScaler(with_mean=False).fit_transform(diff.values.reshape(-1, 1)).flatten())
 diff2 = (diff.fillna(0).diff().ewm(span=0.5 * 390 // period).mean()).fillna(0)*200
 # diff2 = pd.Series(StandardScaler(with_mean=False).fit_transform(diff2.values.reshape(-1, 1)).flatten())
+
+ema24_ = hist_data.iloc[:, 0].ewm(span=26*4//5 * 390 // period).mean()
+ema12_ = hist_data.iloc[:, 0].ewm(span=12*4//5 * 390 // period).mean()
+macd_ = ema12_ - ema24_
+signal_ = macd_.ewm(span=9*4//5 * 390 // period).mean()
+diff_ = (macd_ - signal_)
+diff_ = pd.Series(StandardScaler(with_mean=False).fit_transform(diff_.values.reshape(-1, 1)).flatten())
+diff2_ = (diff_.fillna(0).diff().ewm(span=0.5 * 390 // period).mean()).fillna(0)*200
 
 for ticker, (entry_date, exit_date, position, money_in, money_out, money_delta) in refined.iterrows():
     if position == 1:
@@ -52,7 +62,9 @@ for ticker, (entry_date, exit_date, position, money_in, money_out, money_delta) 
 fig, (ax1, ax2) = plt.subplots(2, 1, sharex='all')
 
 ax2.fill_between(list(diff.reset_index(drop=True).index), diff.fillna(0).values, alpha=0.5)
-ax2.fill_between(list(diff.reset_index(drop=True).index), diff2.fillna(0).values, alpha=0.5)
+# ax2.fill_between(list(diff.reset_index(drop=True).index), diff2.fillna(0).values, alpha=0.5)
+# ax2.fill_between(list(diff.reset_index(drop=True).index), diff_.fillna(0).values, alpha=0.5)
+# ax2.fill_between(list(diff.reset_index(drop=True).index), diff2_.fillna(0).values, alpha=0.5)
 hist_data['open'].reset_index(drop=True).plot(ax=ax1)
 
 for order in hist_data.dropna().iterrows():
