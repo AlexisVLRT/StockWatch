@@ -64,9 +64,16 @@ class RealTime:
                 signal = macd.ewm(span=9 * 390 // self.period).mean()
                 diff = (macd - signal)
                 diff = pd.Series(StandardScaler(with_mean=False).fit_transform(diff.values.reshape(-1, 1)).flatten())
-                diff2 = (diff.fillna(0).diff().ewm(span=0.5 * 390 // self.period).mean()).fillna(0)
 
-                # Buy when diff < -1 and diff2 > 0
+                # ema24_ = data.iloc[:, 0].ewm(span=13 * 390 // self.period).mean()
+                # ema12_ = data.iloc[:, 0].ewm(span=6 * 390 // self.period).mean()
+                macd_ = ema12 - ema24
+                signal_ = macd_.ewm(span=6 * 390 // self.period).mean()
+                diff_ = (macd_ - signal_)
+                diff_ = pd.Series(StandardScaler(with_mean=False).fit_transform(diff_.values.reshape(-1, 1)).flatten())
+                diff2 = (diff_.fillna(0).diff().ewm(span=0.5 * 390 // self.period).mean()).fillna(0) * 200
+
+                # Buy when diff < -1 and diff2 goes > 0
                 if self.positions.loc[ticker, 'LongPosition'] == 0 and self.cash > self.start_cash:
                     if diff.iloc[-1] < -1 and diff2.iloc[-1] > 0 > diff2.iloc[-2]:
                         self.invested += self.start_cash
@@ -74,11 +81,17 @@ class RealTime:
                         print('Buying ', ticker, i)
                         self.open_position(ticker, entry_date=data.index[-1], position=1, entry_price=data.iloc[-1, 0], entry_money=self.start_cash, diff=diff.iloc[-1])
 
-                # Sell when (diff < 0 and diff2 < 1) or (diff2 < 0 and diff > diff@buy/2 and j+3)
+                # Sell when (diff > 0 and diff2 < 1) or (diff2 < 0 and diff < diff@buy/2 and j+3) or we achieve a sufficient year-based profit
                 if self.positions.loc[ticker, 'LongPosition']:
                     open_date = self.positions.loc[ticker, 'LongID'].split('|')[1]
                     min_date_abort = int(datetime.strftime(datetime.strptime(str(open_date), '%Y%m%d%H%M') + timedelta(days=self.min_days_before_abort), '%Y%m%d%H%M'))
-                    if (diff.iloc[-1] > 0 and diff2.iloc[-1] < 1) or (diff2.iloc[-1] < 0 and diff.iloc[-1] > self.positions.loc[ticker, 'LongDiff']*2/3 and int(list(data.index)[-1]) > min_date_abort):
+
+                    price_in = self.positions.loc[ticker, 'LongPosition']
+                    y_profit = 0.5
+                    ticks = len(list(data.index)[data.index.get_loc(int(open_date)):])
+                    thresh = y_profit * self.period * price_in / (390 * 250) * ticks + price_in
+                    min_date_cashout = int(datetime.strftime(datetime.strptime(str(open_date), '%Y%m%d%H%M') + timedelta(hours=4), '%Y%m%d%H%M'))
+                    if (diff.iloc[-1] > 0 and diff2.iloc[-1] < 1) or (diff2.iloc[-1] < 0 and diff.iloc[-1] < self.positions.loc[ticker, 'LongDiff']*2/3 and int(list(data.index)[-1]) > min_date_abort) or (data.iloc[-1, 0] > thresh and int(list(data.index)[-1]) > min_date_cashout):
                         new_money = data.iloc[-1, 0] / self.positions.loc[ticker, 'LongPosition'] * self.positions.loc[ticker, 'Invested']
                         self.invested -= self.positions.loc[ticker, 'Invested']
                         self.cash += new_money
@@ -93,11 +106,18 @@ class RealTime:
                         print('Shorting ', ticker, i)
                         self.open_position(ticker, entry_date=data.index[-1], position=-1, entry_price=data.iloc[-1, 0], entry_money=self.start_cash, diff=diff.iloc[-1])
 
-                # Cover when (diff > 0 and diff2 > -1) or (diff2 > 0 and diff < diff@buy/2 and j+3)
+                # Cover when (diff < 0 and diff2 > -1) or (diff2 > 0 and diff > diff@buy/2 and j+3) or we achieve a sufficient year-based profit
                 if self.positions.loc[ticker, 'ShortPosition']:
                     open_date = self.positions.loc[ticker, 'ShortID'].split('|')[1]
                     min_date_abort = int(datetime.strftime(datetime.strptime(str(open_date), '%Y%m%d%H%M') + timedelta(days=self.min_days_before_abort), '%Y%m%d%H%M'))
-                    if (diff.iloc[-1] < 0 and diff2.iloc[-1] > -1) or (diff2.iloc[-1] > 0 and diff.iloc[-1] < self.positions.loc[ticker, 'ShortDiff']*2/3 and int(list(data.index)[-1]) > min_date_abort):
+
+                    price_in = self.positions.loc[ticker, 'LongPosition']
+                    y_profit = 0.5
+                    ticks = len(list(data.index)[data.index.get_loc(int(open_date)):])
+                    thresh = -y_profit * self.period * price_in / (390 * 250) * ticks + price_in
+                    min_date_cashout = int(datetime.strftime(datetime.strptime(str(open_date), '%Y%m%d%H%M') + timedelta(hours=4), '%Y%m%d%H%M'))
+
+                    if (diff.iloc[-1] < 0 and diff2.iloc[-1] > -1) or (diff2.iloc[-1] > 0 and diff.iloc[-1] > self.positions.loc[ticker, 'ShortDiff']*2/3 and int(list(data.index)[-1]) > min_date_abort) or (data.iloc[-1, 0] < thresh and int(list(data.index)[-1]) > min_date_cashout):
                         new_money = self.positions.loc[ticker, 'Provisioned'] / self.positions.loc[ticker, 'ShortPosition'] * (self.positions.loc[ticker, 'ShortPosition'] - data.iloc[-1, 0]) + self.positions.loc[ticker, 'Provisioned']
                         self.invested -= self.positions.loc[ticker, 'Provisioned']
                         self.cash += new_money
@@ -149,7 +169,7 @@ class RealTime:
 
 db_id = 1
 n_cores = 3
-n_stocks = 215
+n_stocks = 240
 offset = 10000
 past_data = pickle.load(open("FullData_5.p", "rb"))[:-offset]
 past_data = past_data[~past_data.index.duplicated(keep='last')]
