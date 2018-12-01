@@ -65,8 +65,6 @@ class RealTime:
                 diff = (macd - signal)
                 diff = pd.Series(StandardScaler(with_mean=False).fit_transform(diff.values.reshape(-1, 1)).flatten())
 
-                # ema24_ = data.iloc[:, 0].ewm(span=13 * 390 // self.period).mean()
-                # ema12_ = data.iloc[:, 0].ewm(span=6 * 390 // self.period).mean()
                 macd_ = ema12 - ema24
                 signal_ = macd_.ewm(span=6 * 390 // self.period).mean()
                 diff_ = (macd_ - signal_)
@@ -111,7 +109,7 @@ class RealTime:
                     open_date = self.positions.loc[ticker, 'ShortID'].split('|')[1]
                     min_date_abort = int(datetime.strftime(datetime.strptime(str(open_date), '%Y%m%d%H%M') + timedelta(days=self.min_days_before_abort), '%Y%m%d%H%M'))
 
-                    price_in = self.positions.loc[ticker, 'LongPosition']
+                    price_in = self.positions.loc[ticker, 'ShortPosition']
                     y_profit = 0.5
                     ticks = len(list(data.index)[data.index.get_loc(int(open_date)):])
                     thresh = -y_profit * self.period * price_in / (390 * 250) * ticks + price_in
@@ -169,7 +167,7 @@ class RealTime:
 
 db_id = 1
 n_cores = 3
-n_stocks = 240
+n_stocks = 30
 offset = 10000
 past_data = pickle.load(open("FullData_5.p", "rb"))[:-offset]
 past_data = past_data[~past_data.index.duplicated(keep='last')]
@@ -189,6 +187,7 @@ if __name__ == '__main__':
         workers = pool.apply_async(RealTime, (db_id, n_cores, tickers[i], offset, q))
 
     last_point = time.time()
+    plot = False
     while 1:
         index, cash, invested = q.get()
         if index in money.index:
@@ -196,9 +195,13 @@ if __name__ == '__main__':
             if money.iloc[index]['Complete'] == n_cores:
                 print(time.time()-last_point)
                 last_point = time.time()
+                plot = True
         else:
             money.loc[index] = [cash, invested, cash + invested, 1]
-        plt.clf()
-        plt.plot(money[money['Complete'] == n_cores][['Cash', 'Invested', 'Net worth']])
-        plt.pause(0.1)
+
+        if plot:
+            plt.clf()
+            plt.plot(money[money['Complete'] == n_cores][['Cash', 'Invested', 'Net worth']])
+            plt.pause(0.000001)
+            plot = False
 
