@@ -69,7 +69,7 @@ class RealTime:
                 # Buy when diff < -1 and diff2 goes > 0
                 # Buy when diff > 0 and diff2 goes > 0
                 if self.positions.loc[ticker, 'LongPosition'] == 0 and self.cash > self.cash_per_trade:
-                    if diff.iloc[-1] > 0 and diff2.iloc[-1] > 0 > diff2.iloc[-2]:
+                    if diff.iloc[-1] > 0 and diff2.iloc[-1] > 0.1 > diff2.iloc[-2]:
                         self.invested += self.cash_per_trade
                         self.cash -= self.cash_per_trade
                         print('Buying ', ticker, i)
@@ -83,10 +83,11 @@ class RealTime:
                     price_in = self.positions.loc[ticker, 'LongPosition']
                     y_profit = 1
                     ticks = len(list(data.index)[data.index.get_loc(int(open_date)):])
-                    thresh = y_profit * self.period * price_in / (390 * 250) * ticks + price_in
-                    min_date_cashout = int(datetime.strftime(datetime.strptime(str(open_date), '%Y%m%d%H%M') + timedelta(hours=4), '%Y%m%d%H%M'))
+                    thresh_profit = y_profit * self.period * price_in / (390 * 250) * ticks + price_in
+                    thresh_loss = -y_profit * self.period * price_in / (390 * 250) * ticks + price_in
+
                     # if (diff.iloc[-1] > 0 and diff2.iloc[-1] < 1) or (diff2.iloc[-1] < 0 and diff.iloc[-1] < self.positions.loc[ticker, 'LongDiff']*2/3 and int(list(data.index)[-1]) > min_date_abort) or (data.iloc[-1, 0] > thresh and int(list(data.index)[-1]) > min_date_cashout):
-                    if diff2.iloc[-1] < -0.5 or (data.iloc[-1, 0] > thresh and int(list(data.index)[-1]) > min_date_cashout):
+                    if (data.iloc[-1, 0] < thresh_loss or data.iloc[-1, 0] > thresh_profit) and len(list(data.index)[data.index.get_loc(int(open_date)):]) > 390 // (self.period * 6.5) * 4:
                         new_money = data.iloc[-1, 0] / self.positions.loc[ticker, 'LongPosition'] * self.positions.loc[ticker, 'Invested']
                         self.invested -= self.positions.loc[ticker, 'Invested']
                         self.cash += new_money
@@ -95,7 +96,7 @@ class RealTime:
 
                 # Short when diff > 1 and diff2 goes below 0
                 if self.positions.loc[ticker, 'ShortPosition'] == 0 and self.cash > self.cash_per_trade:
-                    if diff.iloc[-1] < 0 and diff2.iloc[-1] < 0 < diff2.iloc[-2]:
+                    if diff.iloc[-1] < 0 and diff2.iloc[-1] < 0.1 < diff2.iloc[-2]:
                         self.invested += self.cash_per_trade
                         self.cash -= self.cash_per_trade
                         print('Shorting ', ticker, i)
@@ -109,11 +110,11 @@ class RealTime:
                     price_in = self.positions.loc[ticker, 'ShortPosition']
                     y_profit = 1
                     ticks = len(list(data.index)[data.index.get_loc(int(open_date)):])
-                    thresh = -y_profit * self.period * price_in / (390 * 250) * ticks + price_in
-                    min_date_cashout = int(datetime.strftime(datetime.strptime(str(open_date), '%Y%m%d%H%M') + timedelta(hours=4), '%Y%m%d%H%M'))
+                    thresh_profit = -y_profit * self.period * price_in / (390 * 250) * ticks + price_in
+                    thresh_loss = y_profit * self.period * price_in / (390 * 250) * ticks + price_in
 
                     # if (diff.iloc[-1] < 0 and diff2.iloc[-1] > -1) or (diff2.iloc[-1] > 0 and diff.iloc[-1] > self.positions.loc[ticker, 'ShortDiff']*2/3 and int(list(data.index)[-1]) > min_date_abort) or (data.iloc[-1, 0] < thresh and int(list(data.index)[-1]) > min_date_cashout):
-                    if diff2.iloc[-1] > 0.5 or (data.iloc[-1, 0] < thresh and int(list(data.index)[-1]) > min_date_cashout):
+                    if (data.iloc[-1, 0] > thresh_loss or data.iloc[-1, 0] < thresh_profit) and len(list(data.index)[data.index.get_loc(int(open_date)):]) > 390 // (self.period * 6.5) * 4:
                         new_money = self.positions.loc[ticker, 'Provisioned'] / self.positions.loc[ticker, 'ShortPosition'] * (self.positions.loc[ticker, 'ShortPosition'] - data.iloc[-1, 0]) + self.positions.loc[ticker, 'Provisioned']
                         self.invested -= self.positions.loc[ticker, 'Provisioned']
                         self.cash += new_money
@@ -167,7 +168,7 @@ db_id = 2
 n_cores = 3
 n_stocks = 30
 cash = 5000000
-cash_per_trade = 500000
+cash_per_trade = 80000
 offset = 10000
 past_data = pickle.load(open("FullData_5.p", "rb"))[:-offset]
 past_data = past_data[~past_data.index.duplicated(keep='last')]
