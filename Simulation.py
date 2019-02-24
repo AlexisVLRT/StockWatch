@@ -21,11 +21,12 @@ def simulate(data, period, fee, start_cash, remaining_funds, invested_funds, ord
     data['12'] = data['open'].ewm(span=12*390//period).mean()
     data['26'] = data['open'].ewm(span=26*390//period).mean()
     data['macd'] = data['12'] - data['26']
-    data['signal'] = data['macd'].ewm(span=9*390//period*1.5).mean()
+    data['signal'] = data['macd'].ewm(span=9*390//period).mean()
     data['diff'] = data['macd'] - data['signal']
 
     data['diff'] = StandardScaler(with_mean=False).fit_transform(data['diff'].values.reshape(-1, 1))
     signals = data['diff'].fillna(0).values
+    diff2 = (data['diff'].fillna(0).diff().ewm(span=0.5 * 390 // period).mean()).fillna(0) * 250
 
     negative_indices = data['diff'].reset_index(drop=True).index[data['diff'] < 0].tolist()
     local_minima = argrelextrema(data['diff'].values, np.less, order=extremums_order)[0]
@@ -181,7 +182,8 @@ def simulate(data, period, fee, start_cash, remaining_funds, invested_funds, ord
         data['open'].plot(ax=ax1)
         ax2.plot(data[['macd', 'signal']])
 
-        ax2.fill_between(list(data.index), signals)
+        ax2.fill_between(list(data.index), signals, alpha=0.5)
+        ax2.fill_between(list(data.index), diff2, alpha=0.5)
 
         for date, value in data['long_buy_orders'].iteritems():
             if value == 2:
@@ -213,21 +215,20 @@ period = 5
 start_cash = 65000
 fee = 0  # Approximation
 budget = 5000000
-order_threshold = 0.25
+order_threshold = 1
 verif_size = 1
 order_shift = 5
 extremums_order = 5
 min_days_before_abort = 5
 sell_trigger_long = 'zero crossing'  # 'zero crossing' or 'extremum'
 sell_trigger_short = 'zero crossing'
-plot = False
+plot = True
 
 results = []
 remaining_funds, invested_funds, orders = None, None, None
 tickers = [file for file in os.listdir(data_path) if '_'+str(period)+'.' in file]
 shuffle(tickers)
-tickers = tickers[:300]
-# tickers = ['INFO_5.p', 'AMZN_5.p', 'AAPL_5.p', 'MSFT_5.p', 'FB_5.p', 'GOOG_5.p', 'TSLA_5.p']
+tickers = tickers[:]
 for stock in tickers:
     print('\n' + stock.split('.p')[0])
     print('{}/{}'.format(tickers.index(stock)+1, len(tickers)))

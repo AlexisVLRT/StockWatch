@@ -21,6 +21,19 @@ def get_positions(db_id, tickers):
     return ret_val, invested
 
 
+def get_open_positions(db_id):
+    conn = mysql.connector.connect(host=dc.host, user=dc.user, password=dc.password, database=dc.database)
+    cursor = conn.cursor()
+    cursor.execute("""SELECT Ticker, Position, EntryDate, EntryPrice, EntryMoney, TradeID FROM PositionsLog{} WHERE ExitDate IS NULL""".format(db_id))
+    rows = cursor.fetchall()
+    ret_val = pd.DataFrame(rows, columns=['Ticker', 'Position', 'EntryDate', 'EntryPrice', 'EntryMoney', 'TradeID'])
+    cursor.close()
+    conn.close()
+
+    invested = ret_val['EntryMoney'].sum()
+    return ret_val, invested
+
+
 def update_position(db_id, ticker, long, invested, short, provisioned, long_id, short_id, long_diff, short_diff):
     conn = mysql.connector.connect(host=dc.host, user=dc.user, password=dc.password, database=dc.database)
     cursor = conn.cursor()
@@ -39,10 +52,11 @@ def open_position(db_id, trade_id, ticker, position, entry_date, entry_price, en
     conn.close()
 
 
-def close_position(db_id, trade_id, exit_date, exit_price, exit_money, profit):
+def close_position(db_id, ticker, trade_id, exit_date, exit_price, exit_money, profit):
     conn = mysql.connector.connect(host=dc.host, user=dc.user, password=dc.password, database=dc.database)
     cursor = conn.cursor()
-    cursor.execute("""UPDATE PositionsLog{} SET  ExitDate = '{}', ExitPrice = '{}', ExitMoney = '{}', Profit = '{}' WHERE TradeID = '{}'""".format(db_id, exit_date, exit_price, exit_money, profit, trade_id))
+    # print("""UPDATE PositionsLog{} SET  ExitDate = '{}', ExitPrice = '{}', ExitMoney = '{}', Profit = '{}' WHERE TradeID = '{}' AND Ticker = '{}'""".format(db_id, exit_date, exit_price, exit_money, profit, trade_id, ticker))
+    cursor.execute("""UPDATE PositionsLog{} SET  ExitDate = '{}', ExitPrice = '{}', ExitMoney = '{}', Profit = '{}' WHERE TradeID = '{}' AND Ticker = '{}'""".format(db_id, exit_date, exit_price, exit_money, profit, trade_id, ticker))
     conn.commit()
     cursor.close()
     conn.close()

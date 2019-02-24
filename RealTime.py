@@ -20,11 +20,11 @@ class RealTime:
         self.queue = queue
         self.period = 5
         self.extremum_order = 5
-        self.order_threshold = 0.25
+        self.order_threshold = 0.2
         self.sell_trigger_long = 'zero crossing'  # 'zero crossing' or 'extremum'
         self.sell_trigger_short = 'zero crossing'
         self.cash = 5000000 / n_cores
-        self.start_cash = 65000
+        self.start_cash = 85000
         self.min_days_before_abort = 5
 
         self.offset = offset
@@ -61,7 +61,7 @@ class RealTime:
                 macd = ema12 - ema24
                 signal = macd.ewm(span=9 * 390 // self.period * 1.5).mean()
                 diff = (macd - signal)
-                diff.update(pd.Series(StandardScaler(with_mean=False).fit_transform(diff.values.reshape(-1, 1)).flatten()))
+                diff = pd.Series(StandardScaler(with_mean=False).fit_transform(diff.values.reshape(-1, 1)).flatten())
                 subset = diff.iloc[-self.extremum_order//2:]
 
                 # Sell if zero crossing
@@ -180,8 +180,8 @@ class RealTime:
         Thread(target=DataBase.close_position, args=(trade_id, exit_date, exit_price, exit_money, profit)).start()
 
 
-n_cores = 3
-n_stocks = 300
+n_cores = 4
+n_stocks = 200
 offset = 10000
 past_data = pickle.load(open("FullData_5.p", "rb"))[:-offset]
 past_data = past_data[~past_data.index.duplicated(keep='last')]
@@ -189,6 +189,9 @@ future_data = pickle.load(open("FullData_5.p", "rb"))[-offset:]
 
 tickers = list(past_data.columns)
 shuffle(tickers)
+
+del tickers[tickers.index('HMNY')]
+
 tickers = tickers[:n_stocks]
 tickers = [tickers[int(i * len(tickers) / n_cores):int((i + 1) * len(tickers) / n_cores)] for i in range(n_cores)]
 money = pd.DataFrame(columns=['Cash', 'Invested', 'Net worth', 'Complete'])

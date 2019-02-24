@@ -20,11 +20,11 @@ class RealTime:
         self.queue = queue
         self.period = 5
         self.extremum_order = 5
-        self.order_threshold = 0.2
+        self.order_threshold = 0.15
         self.sell_trigger_long = 'zero crossing'  # 'zero crossing' or 'extremum'
         self.sell_trigger_short = 'zero crossing'
         self.cash = 5000000 / n_cores
-        self.start_cash = 75000
+        self.start_cash = 80000
         self.min_days_before_abort = 5
 
         self.offset = offset
@@ -180,8 +180,8 @@ class RealTime:
         Thread(target=DataBase.close_position, args=(trade_id, exit_date, exit_price, exit_money, profit)).start()
 
 
-n_cores = 3
-n_stocks = 100
+n_cores = 4
+n_stocks = 220
 offset = 10000
 past_data = pickle.load(open("FullData_5.p", "rb"))[:-offset]
 past_data = past_data[~past_data.index.duplicated(keep='last')]
